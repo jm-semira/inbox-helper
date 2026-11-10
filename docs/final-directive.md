@@ -1,8 +1,8 @@
 # Inbox Helper Engineering Directive
 
-Develop Inbox Helper in five explicitly authorized stages. The current
-authorization covers Day 1 only. Do not start a later day without an explicit
-user instruction such as `START DAY 2`.
+Develop Inbox Helper in five explicitly authorized stages. Day 1 and Day 2
+are implemented under explicit authorization. Do not start a later day without
+an explicit user instruction.
 
 ## Architecture
 

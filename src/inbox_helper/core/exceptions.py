@@ -30,6 +30,14 @@ class IngestionError(InboxHelperError):
     pass
 
 
+class LLMProviderError(InboxHelperError):
+    """Raised when an LLM provider cannot complete a request."""
+
+
+class ClassificationError(InboxHelperError):
+    """Raised when provider output cannot be validated as a classification."""
+
+
 class RepositoryError(InboxHelperError):
     """Base exception for database and persistence operations."""
     pass

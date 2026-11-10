@@ -64,6 +64,16 @@ and a predictable cleanup lifecycle.
 **New approach:** Make resource ownership explicit through the composition
 root and repository lifecycle.
 
+## Day 2
+
+### Prompt framing is not an enforcement boundary
+
+Email content can contain instructions that conflict with the classification
+task. Delimiting it as untrusted data and telling the model not to follow those
+instructions can reduce confusion, but cannot guarantee the model will comply.
+Prompting therefore remains a mitigation; it is not a substitute for validating
+the model's structured output or for treating the result as uncertain.
+
 ---
 
 ## Continuing this document

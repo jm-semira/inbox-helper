@@ -6,10 +6,11 @@ review, export, and a user interface in stages.
 
 ## Current state
 
-Only the Day 1 foundation is implemented: a validated email data contract,
-CSV ingestion, SQLite persistence, logging utilities, and a provider-neutral
-LLM contract backed by a deterministic mock. No email is sent by this
-application.
+The Day 1 foundation is implemented: a validated email data contract, CSV
+ingestion, SQLite persistence, logging utilities, and a provider-neutral LLM
+contract backed by a deterministic mock. Day 2 adds provider-neutral email
+classification with validated intent, urgency, confidence, and explanation
+fields. Classification is not persisted. No email is sent by this application.
 
 Incoming email content must be treated as untrusted. External providers must
 remain isolated behind adapters; secrets must come from environment or secure

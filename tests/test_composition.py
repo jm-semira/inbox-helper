@@ -1,7 +1,12 @@
 from pathlib import Path
 
-from inbox_helper.composition import create_application
+from inbox_helper.application.services.email_classifier import EmailClassifier
+from inbox_helper.composition import (
+    create_application,
+    create_classification_service,
+)
 from inbox_helper.core.config import AppConfig
+from inbox_helper.domain.models.email import Email
 from inbox_helper.infrastructure.persistence.sqlite_email_repository import (
     SqliteEmailRepository,
 )
@@ -30,3 +35,29 @@ def test_composition_wires_ingestion_and_closes_repository(
         assert ingestion.ingest_csv(csv_path) == 1
 
     assert close_calls == 1
+
+
+def test_classification_service_is_constructible_without_ingestion_database(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class JsonProvider:
+        def complete(self, prompt: str) -> str:
+            return (
+                '{"intent":"other","urgency":"low","confidence":0.8,'
+                '"explanation":"Informational message."}'
+            )
+
+    monkeypatch.setattr(
+        "inbox_helper.composition.create_llm_provider",
+        lambda config: JsonProvider(),
+    )
+    config = AppConfig(db_path=str(tmp_path / "must-not-be-created.db"))
+
+    classifier = create_classification_service(config)
+    result = classifier.classify(
+        Email(id="email-1", sender="sender", subject="Note", body="For your information")
+    )
+
+    assert isinstance(classifier, EmailClassifier)
+    assert result.intent.value == "other"
+    assert not (tmp_path / "must-not-be-created.db").exists()
