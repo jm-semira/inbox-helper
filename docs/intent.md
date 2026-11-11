@@ -10,7 +10,9 @@ The Day 1 foundation is implemented: a validated email data contract, CSV
 ingestion, SQLite persistence, logging utilities, and a provider-neutral LLM
 contract backed by a deterministic mock. Day 2 adds provider-neutral email
 classification with validated intent, urgency, confidence, and explanation
-fields. Classification is not persisted. No email is sent by this application.
+fields; classification is not persisted. Day 3 adds SQLite-persisted reply
+drafts with explicit human approval or rejection. No email is sent by this
+application.
 
 Incoming email content must be treated as untrusted. External providers must
 remain isolated behind adapters; secrets must come from environment or secure

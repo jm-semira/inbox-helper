@@ -38,6 +38,18 @@ class ClassificationError(InboxHelperError):
     """Raised when provider output cannot be validated as a classification."""
 
 
+class ReplyGenerationError(InboxHelperError):
+    """Raised when provider output cannot be validated as a reply draft."""
+
+
+class DraftStateError(InboxHelperError):
+    """Raised when a draft operation is invalid for its current state."""
+
+
+class DraftValidationError(ValidationError):
+    """Raised when human-edited draft content is invalid."""
+
+
 class RepositoryError(InboxHelperError):
     """Base exception for database and persistence operations."""
     pass

@@ -1,14 +1,19 @@
 from pathlib import Path
 
 from inbox_helper.application.services.email_classifier import EmailClassifier
+from inbox_helper.application.services.reply_draft_service import ReplyDraftService
 from inbox_helper.composition import (
     create_application,
     create_classification_service,
+    create_reply_draft_service,
 )
 from inbox_helper.core.config import AppConfig
 from inbox_helper.domain.models.email import Email
 from inbox_helper.infrastructure.persistence.sqlite_email_repository import (
     SqliteEmailRepository,
+)
+from inbox_helper.infrastructure.persistence.sqlite_reply_draft_repository import (
+    SqliteReplyDraftRepository,
 )
 
 
@@ -61,3 +66,43 @@ def test_classification_service_is_constructible_without_ingestion_database(
     assert isinstance(classifier, EmailClassifier)
     assert result.intent.value == "other"
     assert not (tmp_path / "must-not-be-created.db").exists()
+
+
+def test_reply_draft_service_is_independently_constructible_and_closes_repository(
+    tmp_path: Path, monkeypatch
+) -> None:
+    class JsonProvider:
+        def complete(self, prompt: str) -> str:
+            return (
+                '{"reply_text":"Thank you.","requires_human_input":false,'
+                '"human_input_reason":null}'
+            )
+
+    close_calls = 0
+    draft_close_calls = 0
+    original_close = SqliteEmailRepository.close
+    original_draft_close = SqliteReplyDraftRepository.close
+
+    def track_close(repository: SqliteEmailRepository) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        original_close(repository)
+
+    def track_draft_close(repository: SqliteReplyDraftRepository) -> None:
+        nonlocal draft_close_calls
+        draft_close_calls += 1
+        original_draft_close(repository)
+
+    monkeypatch.setattr(
+        "inbox_helper.composition.create_llm_provider",
+        lambda config: JsonProvider(),
+    )
+    monkeypatch.setattr(SqliteEmailRepository, "close", track_close)
+    monkeypatch.setattr(SqliteReplyDraftRepository, "close", track_draft_close)
+    config = AppConfig(db_path=str(tmp_path / "drafts.db"), log_level="CRITICAL")
+
+    with create_reply_draft_service(config) as service:
+        assert isinstance(service, ReplyDraftService)
+
+    assert close_calls == 1
+    assert draft_close_calls == 1

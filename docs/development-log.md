@@ -1,5 +1,21 @@
 # Development Log
 
+## Day 3 — Reply Generation and Human Review
+
+- Added provider-neutral reply generation using the existing LLM contract and
+  strict Pydantic response validation; provider and generation-output errors
+  remain distinct.
+- Added persisted SQLite drafts with separate original/current text, optional
+  human-input warning and reason, source-email foreign key, and lifecycle
+  timestamps.
+- Added explicit edit, approve, and reject operations. Conditional SQLite
+  updates enforce terminal decisions atomically across repository connections.
+- Added independent reply-service composition and deterministic tests for
+  grounding prompts, invalid output, provider failure, editing, persistence,
+  source integrity, terminal transitions, and conflicting concurrent
+  decisions.
+- No email sending, external provider, UI, or Day 4/5 feature was implemented.
+
 ## Day 2 — AI Classification and Intent Detection
 
 - Added a strict Pydantic classification result with five intent categories,

@@ -19,6 +19,7 @@ class SqliteEmailRepository:
         try:
             self._connection = sqlite3.connect(self._db_path)
             self._connection.row_factory = sqlite3.Row
+            self._connection.execute("PRAGMA foreign_keys = ON")
             self._create_schema()
         except sqlite3.Error as error:
             raise RepositoryError(f"Could not initialize SQLite repository: {error}") from error
