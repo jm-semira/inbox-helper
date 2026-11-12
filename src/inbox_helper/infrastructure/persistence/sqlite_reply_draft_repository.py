@@ -2,16 +2,24 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
 
+from pydantic import ValidationError as PydanticValidationError
+
+from inbox_helper.application.models.approved_reply_export import (
+    ApprovedReplyExportRow,
+)
+from inbox_helper.application.models.review_queue import ReviewQueueItem
 from inbox_helper.application.ports.reply_draft_repository import DraftDecision
 from inbox_helper.core.exceptions import (
     DraftStateError,
     EntityNotFoundError,
     RepositoryError,
 )
+from inbox_helper.domain.models.classification import EmailClassification
 from inbox_helper.domain.models.reply_draft import DraftStatus, ReplyDraft
 
 
@@ -61,6 +69,7 @@ class SqliteReplyDraftRepository:
                     requires_human_input INTEGER NOT NULL
                         CHECK (requires_human_input IN (0, 1)),
                     human_input_reason TEXT,
+                    classification_json TEXT,
                     status TEXT NOT NULL
                         CHECK (status IN ('draft', 'approved', 'rejected')),
                     created_at TEXT NOT NULL,
@@ -81,6 +90,16 @@ class SqliteReplyDraftRepository:
                 )
                 """
             )
+            columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(reply_drafts)"
+                ).fetchall()
+            }
+            if "classification_json" not in columns:
+                self._connection.execute(
+                    "ALTER TABLE reply_drafts ADD COLUMN classification_json TEXT"
+                )
 
     def create(self, draft: ReplyDraft) -> ReplyDraft:
         """Insert a new draft referencing an existing email."""
@@ -92,9 +111,10 @@ class SqliteReplyDraftRepository:
                     """
                     INSERT INTO reply_drafts (
                         id, source_email_id, original_generated_text, current_text,
-                        requires_human_input, human_input_reason, status,
+                        requires_human_input, human_input_reason,
+                        classification_json, status,
                         created_at, updated_at, decided_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         draft.id,
@@ -103,6 +123,7 @@ class SqliteReplyDraftRepository:
                         draft.current_text,
                         int(draft.requires_human_input),
                         draft.human_input_reason,
+                        self._serialize_classification(draft.classification),
                         draft.status.value,
                         draft.created_at.isoformat(),
                         draft.updated_at.isoformat(),
@@ -152,6 +173,74 @@ class SqliteReplyDraftRepository:
         except sqlite3.Error as error:
             raise RepositoryError(f"Could not list reply drafts: {error}") from error
         return [self._to_draft(row) for row in rows]
+
+    def list_pending_review_items(self) -> list[ReviewQueueItem]:
+        """Select undecided drafts with only the source fields needed for review."""
+        try:
+            rows = self._connection.execute(
+                """
+                SELECT d.*, e.sender, e.subject, e.received_at
+                FROM reply_drafts AS d
+                JOIN emails AS e ON e.id = d.source_email_id
+                WHERE d.status = 'draft' AND d.decided_at IS NULL
+                ORDER BY d.rowid
+                """
+            ).fetchall()
+        except sqlite3.Error as error:
+            raise RepositoryError(
+                f"Could not list pending reply drafts: {error}"
+            ) from error
+        items: list[ReviewQueueItem] = []
+        for row in rows:
+            draft = self._to_draft(row)
+            items.append(
+                ReviewQueueItem(
+                    draft=draft,
+                    sender=row["sender"],
+                    subject=row["subject"],
+                    received_at=datetime.fromisoformat(row["received_at"]),
+                    intent=(
+                        draft.classification.intent
+                        if draft.classification is not None
+                        else None
+                    ),
+                    urgency=(
+                        draft.classification.urgency.value
+                        if draft.classification is not None
+                        else None
+                    ),
+                )
+            )
+        return items
+
+    def list_approved_export_rows(self) -> list[ApprovedReplyExportRow]:
+        """Select only explicitly approved replies and their source-email metadata."""
+        try:
+            rows = self._connection.execute(
+                """
+                SELECT d.id AS draft_id, d.source_email_id, e.sender, e.subject,
+                       d.current_text AS reply_text, d.decided_at AS approved_at
+                FROM reply_drafts AS d
+                JOIN emails AS e ON e.id = d.source_email_id
+                WHERE d.status = 'approved' AND d.decided_at IS NOT NULL
+                ORDER BY d.decided_at, d.id
+                """
+            ).fetchall()
+        except sqlite3.Error as error:
+            raise RepositoryError(
+                f"Could not select approved reply drafts: {error}"
+            ) from error
+        return [
+            ApprovedReplyExportRow(
+                draft_id=row["draft_id"],
+                source_email_id=row["source_email_id"],
+                sender=row["sender"],
+                subject=row["subject"],
+                reply_text=row["reply_text"],
+                approved_at=datetime.fromisoformat(row["approved_at"]),
+            )
+            for row in rows
+        ]
 
     def edit_current_text(
         self, draft_id: str, current_text: str, updated_at: datetime
@@ -218,13 +307,72 @@ class SqliteReplyDraftRepository:
 
     @staticmethod
     def _to_draft(row: sqlite3.Row) -> ReplyDraft:
-        values = dict(row)
+        draft_fields = {
+            "id",
+            "source_email_id",
+            "original_generated_text",
+            "current_text",
+            "requires_human_input",
+            "human_input_reason",
+            "classification_json",
+            "status",
+            "created_at",
+            "updated_at",
+            "decided_at",
+        }
+        values = {key: row[key] for key in draft_fields if key in row.keys()}
+        serialized_classification = values.pop("classification_json", None)
+        values["classification"] = (
+            SqliteReplyDraftRepository._deserialize_classification(
+                serialized_classification
+            )
+        )
         values["requires_human_input"] = bool(values["requires_human_input"])
         values["status"] = DraftStatus(values["status"])
         for field in ("created_at", "updated_at", "decided_at"):
             if values[field] is not None:
                 values[field] = datetime.fromisoformat(values[field])
         return ReplyDraft.model_validate(values)
+
+    @staticmethod
+    def _serialize_classification(
+        classification: EmailClassification | None,
+    ) -> str | None:
+        if classification is None:
+            return None
+        payload = {
+            "schema_version": 1,
+            "classification": classification.model_dump(mode="json"),
+        }
+        return json.dumps(
+            payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+
+    @staticmethod
+    def _deserialize_classification(
+        serialized: str | None,
+    ) -> EmailClassification | None:
+        if serialized is None:
+            return None
+        try:
+            payload = json.loads(serialized)
+            if (
+                not isinstance(payload, dict)
+                or payload.get("schema_version") != 1
+                or not isinstance(payload.get("classification"), dict)
+            ):
+                raise ValueError("unsupported classification snapshot format")
+            return EmailClassification.model_validate_json(
+                json.dumps(payload["classification"])
+            )
+        except (json.JSONDecodeError, ValueError, TypeError) as error:
+            raise RepositoryError(
+                "Could not decode stored classification snapshot."
+            ) from error
+        except PydanticValidationError as error:
+            raise RepositoryError(
+                "Could not validate stored classification snapshot."
+            ) from error
 
     def close(self) -> None:
         self._connection.close()

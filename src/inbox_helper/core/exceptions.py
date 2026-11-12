@@ -34,6 +34,14 @@ class LLMProviderError(InboxHelperError):
     """Raised when an LLM provider cannot complete a request."""
 
 
+class TransientLLMProviderError(LLMProviderError):
+    """Raised when a provider failure may succeed on a bounded retry."""
+
+
+class LLMProviderTimeoutError(TransientLLMProviderError):
+    """Raised when a provider operation exceeds its configured I/O timeout."""
+
+
 class ClassificationError(InboxHelperError):
     """Raised when provider output cannot be validated as a classification."""
 
@@ -48,6 +56,10 @@ class DraftStateError(InboxHelperError):
 
 class DraftValidationError(ValidationError):
     """Raised when human-edited draft content is invalid."""
+
+
+class ExportError(InboxHelperError):
+    """Raised when an approved-reply export cannot be completed."""
 
 
 class RepositoryError(InboxHelperError):

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,12 @@ class AppConfig:
     gemini_api_key: str | None = field(default=None, repr=False)
     ollama_base_url: str = "http://localhost:11434"
 
+    def __post_init__(self) -> None:
+        if not math.isfinite(self.llm_timeout) or not 0 < self.llm_timeout <= 300:
+            raise ConfigurationError(
+                "llm_timeout must be finite and between 0 and 300 seconds."
+            )
+
     @classmethod
     def from_env(cls) -> AppConfig:
         """Create configuration loaded from environment variables."""
@@ -58,11 +65,12 @@ class AppConfig:
         raw_timeout = os.getenv("INBOX_HELPER_LLM_TIMEOUT", "30.0")
         try:
             llm_timeout = float(raw_timeout)
-            if llm_timeout <= 0:
+            if not math.isfinite(llm_timeout) or not 0 < llm_timeout <= 300:
                 raise ValueError
         except ValueError:
             raise ConfigurationError(
-                f"INBOX_HELPER_LLM_TIMEOUT must be a positive float, got '{raw_timeout}'"
+                "INBOX_HELPER_LLM_TIMEOUT must be finite and between 0 and "
+                f"300 seconds, got '{raw_timeout}'"
             )
 
         raw_temp = os.getenv("INBOX_HELPER_LLM_TEMPERATURE", "0.2")

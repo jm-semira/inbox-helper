@@ -55,6 +55,7 @@ class ReplyDraftService:
             current_text=generated.reply_text,
             requires_human_input=generated.requires_human_input,
             human_input_reason=generated.human_input_reason,
+            classification=classification,
             created_at=now,
             updated_at=now,
         )

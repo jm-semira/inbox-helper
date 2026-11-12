@@ -1,9 +1,13 @@
 """Reply generation output and human-review draft models."""
 
+from __future__ import annotations
+
 from datetime import UTC, datetime
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from inbox_helper.domain.models.classification import EmailClassification
 
 
 class DraftStatus(str, Enum):
@@ -50,6 +54,7 @@ class ReplyDraft(BaseModel):
     current_text: str = Field(min_length=1)
     requires_human_input: bool
     human_input_reason: str | None
+    classification: EmailClassification | None = None
     status: DraftStatus = DraftStatus.DRAFT
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

@@ -3,6 +3,10 @@
 from datetime import datetime
 from typing import Literal, Protocol
 
+from inbox_helper.application.models.approved_reply_export import (
+    ApprovedReplyExportRow,
+)
+from inbox_helper.application.models.review_queue import ReviewQueueItem
 from inbox_helper.domain.models.reply_draft import DraftStatus, ReplyDraft
 
 
@@ -22,6 +26,12 @@ class ReplyDraftRepository(Protocol):
         self, status: DraftStatus | None = None
     ) -> list[ReplyDraft]:
         """List saved drafts, optionally limited to a lifecycle state."""
+
+    def list_pending_review_items(self) -> list[ReviewQueueItem]:
+        """List only undecided drafts with their source-email metadata."""
+
+    def list_approved_export_rows(self) -> list[ApprovedReplyExportRow]:
+        """List only approved drafts and their source-email metadata."""
 
     def edit_current_text(
         self, draft_id: str, current_text: str, updated_at: datetime

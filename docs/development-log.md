@@ -1,5 +1,23 @@
 # Development Log
 
+## Day 4 — Organization, Export and Reliability
+
+- Persisted the Day 3 generation-time classification as a versioned JSON
+  snapshot; migrated existing draft tables with a nullable column and retained
+  legacy drafts as unclassified.
+- Added an application-level pending-draft queue with explicit intent and
+  urgency ordering, plus deterministic tie-breaks and lifecycle filtering.
+- Added approved-only CSV selection and atomic UTF-8 CSV export using current
+  edited text, source IDs, quoting, and export-only spreadsheet formula
+  protection.
+- Added one bounded completion retry wrapper for explicit transient provider
+  errors and a separate mock health-check capability. The mock default and
+  `complete(prompt) -> str` contract remain unchanged.
+- Added safe retry/export diagnostics and tests for migration, queue ordering,
+  CSV safety, retry classification, and provider health. No real network
+  provider or timeout enforcement is available in this repository.
+- No email sending, UI, or Day 5 feature was implemented.
+
 ## Day 3 — Reply Generation and Human Review
 
 - Added provider-neutral reply generation using the existing LLM contract and

@@ -4,12 +4,25 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 
 from inbox_helper.application.services.email_classifier import EmailClassifier
+from inbox_helper.application.services.approved_reply_export_service import (
+    ApprovedReplyExportService,
+)
 from inbox_helper.application.services.email_ingestion import EmailIngestionService
+from inbox_helper.application.services.provider_health_service import (
+    ProviderHealthService,
+)
 from inbox_helper.application.services.reply_draft_service import ReplyDraftService
+from inbox_helper.application.services.review_queue_service import ReviewQueueService
 from inbox_helper.core.config import AppConfig, get_config
 from inbox_helper.core.logging import configure_logging
 from inbox_helper.infrastructure.csv.email_csv_reader import EmailCsvReader
-from inbox_helper.infrastructure.llm.factory import create_llm_provider
+from inbox_helper.infrastructure.csv.approved_reply_exporter import (
+    ApprovedReplyCsvExporter,
+)
+from inbox_helper.infrastructure.llm.factory import (
+    create_llm_health_check,
+    create_llm_provider,
+)
 from inbox_helper.infrastructure.persistence.sqlite_email_repository import (
     SqliteEmailRepository,
 )
@@ -24,6 +37,46 @@ def create_classification_service(
     """Build the classification service without creating ingestion resources."""
     active_config = config or get_config()
     return EmailClassifier(create_llm_provider(active_config))
+
+
+def create_provider_health_service(
+    config: AppConfig | None = None,
+) -> ProviderHealthService:
+    """Build the provider health service separately from completion retries."""
+    active_config = config or get_config()
+    return ProviderHealthService(create_llm_health_check(active_config))
+
+
+@contextmanager
+def create_review_queue_service(
+    config: AppConfig | None = None,
+) -> Iterator[ReviewQueueService]:
+    """Build the pending-draft queue service with its repository lifecycle."""
+    active_config = config or get_config()
+    configure_logging(active_config.log_level)
+    email_repository = SqliteEmailRepository(active_config.db_path)
+    email_repository.close()
+    repository = SqliteReplyDraftRepository(active_config.db_path)
+    try:
+        yield ReviewQueueService(repository)
+    finally:
+        repository.close()
+
+
+@contextmanager
+def create_approved_reply_export_service(
+    config: AppConfig | None = None,
+) -> Iterator[ApprovedReplyExportService]:
+    """Build approved-only export with its repository and CSV writer."""
+    active_config = config or get_config()
+    configure_logging(active_config.log_level)
+    email_repository = SqliteEmailRepository(active_config.db_path)
+    email_repository.close()
+    repository = SqliteReplyDraftRepository(active_config.db_path)
+    try:
+        yield ApprovedReplyExportService(repository, ApprovedReplyCsvExporter())
+    finally:
+        repository.close()
 
 
 @contextmanager
