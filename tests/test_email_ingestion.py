@@ -29,6 +29,44 @@ def test_ingestion_validates_and_persists_csv(tmp_path: Path) -> None:
     repository.close()
 
 
+def test_ingestion_accepts_uploaded_csv_bytes(tmp_path: Path) -> None:
+    repository = SqliteEmailRepository(tmp_path / "inbox.db")
+    service = EmailIngestionService(EmailCsvReader(), repository)
+    content = b"\xef\xbb\xbfid,sender,subject,body\nmail-1,sender,Hello,Message\n"
+
+    assert service.ingest_csv_content(content) == 1
+    assert repository.get_by_id("mail-1").body == "Message"
+    repository.close()
+
+
+def test_invalid_uploaded_csv_is_not_partially_persisted(tmp_path: Path) -> None:
+    repository = SqliteEmailRepository(tmp_path / "inbox.db")
+    service = EmailIngestionService(EmailCsvReader(), repository)
+    content = (
+        b"sender,subject,body\nvalid@example.com,Hello,Message\n"
+        b",Missing sender,Message\n"
+    )
+
+    with pytest.raises(IngestionError, match="CSV line 3"):
+        service.ingest_csv_content(content)
+
+    assert repository.list_all() == []
+    repository.close()
+
+
+def test_invalid_utf8_upload_is_rejected_without_persistence(
+    tmp_path: Path,
+) -> None:
+    repository = SqliteEmailRepository(tmp_path / "inbox.db")
+    service = EmailIngestionService(EmailCsvReader(), repository)
+
+    with pytest.raises(IngestionError, match="Could not read email CSV"):
+        service.ingest_csv_content(b"\xff")
+
+    assert repository.list_all() == []
+    repository.close()
+
+
 def test_invalid_csv_is_not_partially_persisted(tmp_path: Path) -> None:
     csv_path = tmp_path / "emails.csv"
     csv_path.write_text(

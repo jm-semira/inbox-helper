@@ -19,6 +19,7 @@ class ReviewQueueItem(BaseModel):
     received_at: datetime
     intent: EmailIntent | None
     urgency: str | None
+    body: str = ""
 
 
 class ReviewQueueGroup(BaseModel):

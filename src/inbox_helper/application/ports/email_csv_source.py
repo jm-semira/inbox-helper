@@ -11,3 +11,6 @@ class EmailCsvSource(Protocol):
 
     def read(self, path: str | Path) -> list[Email]:
         """Return all validated records or raise an ingestion error."""
+
+    def read_content(self, content: bytes) -> list[Email]:
+        """Read validated records from uploaded CSV bytes."""

@@ -13,8 +13,11 @@ classification with validated intent, urgency, confidence, and explanation
 fields; classification is not persisted. Day 3 adds SQLite-persisted reply
 drafts with explicit human approval or rejection. Day 4 adds classification
 snapshots on drafts, an organized pending review queue, approved-only CSV
-export, and bounded provider retry/health behavior. No email is sent by this
-application.
+export, and bounded provider retry/health behavior. Day 5 adds a local
+Streamlit interface for ingestion, classification, draft review, and
+approved-only export. Day 5 adds local Ollama inference alongside the existing
+mock provider. Demo Mode uses predefined responses, not actual AI-generated
+results. No cloud LLM provider or email sending is implemented.
 
 Incoming email content must be treated as untrusted. External providers must
 remain isolated behind adapters; secrets must come from environment or secure

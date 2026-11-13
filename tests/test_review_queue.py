@@ -126,6 +126,7 @@ def test_queue_groups_with_explicit_intent_and_urgency_order(
         assert [item.draft.id for item in groups[3].items] == [
             "draft-unclassified"
         ]
+        assert groups[0].items[0].body == "Body"
         assert all(
             item.draft.status is DraftStatus.DRAFT
             for group in groups

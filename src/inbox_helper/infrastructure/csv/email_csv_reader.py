@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+from io import StringIO
 from pathlib import Path
 from typing import TextIO
 
@@ -24,6 +25,14 @@ class EmailCsvReader:
             with Path(path).open("r", encoding="utf-8-sig", newline="") as file:
                 return self._parse(file)
         except (OSError, UnicodeError, csv.Error) as error:
+            raise IngestionError(f"Could not read email CSV: {error}") from error
+
+    def read_content(self, content: bytes) -> list[Email]:
+        """Decode and validate uploaded CSV bytes using the same parser."""
+        try:
+            text = content.decode("utf-8-sig")
+            return self._parse(StringIO(text, newline=""))
+        except (UnicodeError, csv.Error) as error:
             raise IngestionError(f"Could not read email CSV: {error}") from error
 
     def _parse(self, file: TextIO) -> list[Email]:

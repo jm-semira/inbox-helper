@@ -1,13 +1,16 @@
 """Application composition root and resource lifecycle."""
 
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
+from dataclasses import dataclass
 
-from inbox_helper.application.services.email_classifier import EmailClassifier
 from inbox_helper.application.services.approved_reply_export_service import (
     ApprovedReplyExportService,
 )
+from inbox_helper.application.services.dashboard_service import DashboardService
+from inbox_helper.application.services.email_classifier import EmailClassifier
 from inbox_helper.application.services.email_ingestion import EmailIngestionService
+from inbox_helper.application.services.email_query_service import EmailQueryService
 from inbox_helper.application.services.provider_health_service import (
     ProviderHealthService,
 )
@@ -31,6 +34,23 @@ from inbox_helper.infrastructure.persistence.sqlite_reply_draft_repository impor
 )
 
 
+@dataclass(frozen=True)
+class UiApplicationServices:
+    """Application services and configuration exposed to the UI boundary."""
+
+    ingestion: EmailIngestionService
+    email_query: EmailQueryService
+    classifier: EmailClassifier
+    reply_drafts: ReplyDraftService
+    review_queue: ReviewQueueService
+    dashboard: DashboardService
+    approved_export: ApprovedReplyExportService
+    provider_health: ProviderHealthService
+    demo_mode: bool
+    llm_provider: str
+    llm_model: str
+
+
 def create_classification_service(
     config: AppConfig | None = None,
 ) -> EmailClassifier:
@@ -45,6 +65,40 @@ def create_provider_health_service(
     """Build the provider health service separately from completion retries."""
     active_config = config or get_config()
     return ProviderHealthService(create_llm_health_check(active_config))
+
+
+@contextmanager
+def create_ui_application(
+    config: AppConfig | None = None,
+) -> Iterator[UiApplicationServices]:
+    """Build UI services together and close their SQLite resources reliably."""
+    active_config = config or get_config()
+    active_config.ensure_db_directory()
+    configure_logging(active_config.log_level)
+    with ExitStack() as stack:
+        email_repository = stack.enter_context(
+            SqliteEmailRepository(active_config.db_path)
+        )
+        draft_repository = stack.enter_context(
+            SqliteReplyDraftRepository(active_config.db_path)
+        )
+        provider = create_llm_provider(active_config)
+        services = UiApplicationServices(
+            ingestion=EmailIngestionService(EmailCsvReader(), email_repository),
+            email_query=EmailQueryService(email_repository),
+            classifier=EmailClassifier(provider),
+            reply_drafts=ReplyDraftService(provider, draft_repository),
+            review_queue=ReviewQueueService(draft_repository),
+            dashboard=DashboardService(email_repository, draft_repository),
+            approved_export=ApprovedReplyExportService(
+                draft_repository, ApprovedReplyCsvExporter()
+            ),
+            provider_health=create_provider_health_service(active_config),
+            demo_mode=active_config.demo_mode,
+            llm_provider=active_config.llm_provider,
+            llm_model=active_config.llm_model,
+        )
+        yield services
 
 
 @contextmanager

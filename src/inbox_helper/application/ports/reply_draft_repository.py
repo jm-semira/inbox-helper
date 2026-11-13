@@ -27,6 +27,12 @@ class ReplyDraftRepository(Protocol):
     ) -> list[ReplyDraft]:
         """List saved drafts, optionally limited to a lifecycle state."""
 
+    def count_drafts_by_status(self) -> dict[DraftStatus, int]:
+        """Return draft counts by lifecycle status."""
+
+    def count_classified_drafts(self) -> int:
+        """Return the number of drafts with a stored classification snapshot."""
+
     def list_pending_review_items(self) -> list[ReviewQueueItem]:
         """List only undecided drafts with their source-email metadata."""
 

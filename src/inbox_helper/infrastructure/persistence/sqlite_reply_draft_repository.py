@@ -179,7 +179,7 @@ class SqliteReplyDraftRepository:
         try:
             rows = self._connection.execute(
                 """
-                SELECT d.*, e.sender, e.subject, e.received_at
+                SELECT d.*, e.sender, e.subject, e.body, e.received_at
                 FROM reply_drafts AS d
                 JOIN emails AS e ON e.id = d.source_email_id
                 WHERE d.status = 'draft' AND d.decided_at IS NULL
@@ -198,6 +198,7 @@ class SqliteReplyDraftRepository:
                     draft=draft,
                     sender=row["sender"],
                     subject=row["subject"],
+                    body=row["body"],
                     received_at=datetime.fromisoformat(row["received_at"]),
                     intent=(
                         draft.classification.intent
@@ -241,6 +242,46 @@ class SqliteReplyDraftRepository:
             )
             for row in rows
         ]
+
+    def count_drafts_by_status(self) -> dict[DraftStatus, int]:
+        """Return counts for every lifecycle state, including zero counts."""
+        counts = {status: 0 for status in DraftStatus}
+        try:
+            rows = self._connection.execute(
+                """
+                SELECT status, COUNT(*) AS count
+                FROM reply_drafts
+                GROUP BY status
+                """
+            ).fetchall()
+        except sqlite3.Error as error:
+            raise RepositoryError(
+                f"Could not count reply drafts: {error}"
+            ) from error
+        try:
+            for row in rows:
+                counts[DraftStatus(row["status"])] = int(row["count"])
+        except ValueError as error:
+            raise RepositoryError(
+                "Could not count drafts with invalid status."
+            ) from error
+        return counts
+
+    def count_classified_drafts(self) -> int:
+        """Count drafts that preserve their generation-time classification."""
+        try:
+            row = self._connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM reply_drafts
+                WHERE classification_json IS NOT NULL
+                """
+            ).fetchone()
+        except sqlite3.Error as error:
+            raise RepositoryError(
+                f"Could not count classified reply drafts: {error}"
+            ) from error
+        return int(row["count"])
 
     def edit_current_text(
         self, draft_id: str, current_text: str, updated_at: datetime

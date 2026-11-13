@@ -83,6 +83,17 @@ class SqliteEmailRepository:
             raise RepositoryError(f"Could not list emails from SQLite: {error}") from error
         return [Email.model_validate(dict(row)) for row in rows]
 
+    def count_emails(self) -> int:
+        try:
+            row = self._connection.execute(
+                "SELECT COUNT(*) AS count FROM emails"
+            ).fetchone()
+        except sqlite3.Error as error:
+            raise RepositoryError(
+                f"Could not count emails in SQLite: {error}"
+            ) from error
+        return int(row["count"])
+
     def close(self) -> None:
         self._connection.close()
 

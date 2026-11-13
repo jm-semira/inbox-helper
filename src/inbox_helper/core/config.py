@@ -7,6 +7,7 @@ import os
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 
@@ -34,12 +35,49 @@ class AppConfig:
     openai_api_key: str | None = field(default=None, repr=False)
     gemini_api_key: str | None = field(default=None, repr=False)
     ollama_base_url: str = "http://localhost:11434"
+    demo_mode: bool = False
 
     def __post_init__(self) -> None:
         if not math.isfinite(self.llm_timeout) or not 0 < self.llm_timeout <= 300:
             raise ConfigurationError(
                 "llm_timeout must be finite and between 0 and 300 seconds."
             )
+        if self.demo_mode and self.llm_provider != "mock":
+            raise ConfigurationError(
+                "Demo Mode is available only with the mock provider."
+            )
+        if (
+            not math.isfinite(self.llm_temperature)
+            or not 0 <= self.llm_temperature <= 2
+        ):
+            raise ConfigurationError(
+                "llm_temperature must be finite and between 0 and 2."
+            )
+        if not self.llm_model.strip():
+            raise ConfigurationError("llm_model must not be empty.")
+        if self.llm_provider == "ollama" and self.llm_model == "mock-model-v1":
+            object.__setattr__(self, "llm_model", "llama3.2")
+        if self.llm_provider == "ollama":
+            try:
+                parsed_url = urlsplit(self.ollama_base_url)
+                has_hostname = bool(parsed_url.hostname)
+                _ = parsed_url.port
+            except ValueError as error:
+                raise ConfigurationError(
+                    "OLLAMA_BASE_URL must be a valid HTTP(S) URL."
+                ) from error
+            if (
+                parsed_url.scheme not in {"http", "https"}
+                or not has_hostname
+                or parsed_url.username is not None
+                or parsed_url.password is not None
+                or parsed_url.query
+                or parsed_url.fragment
+            ):
+                raise ConfigurationError(
+                    "OLLAMA_BASE_URL must be an HTTP(S) URL without credentials, "
+                    "query, or fragment."
+                )
 
     @classmethod
     def from_env(cls) -> AppConfig:
@@ -76,7 +114,7 @@ class AppConfig:
         raw_temp = os.getenv("INBOX_HELPER_LLM_TEMPERATURE", "0.2")
         try:
             llm_temperature = float(raw_temp)
-            if not 0.0 <= llm_temperature <= 2.0:
+            if not math.isfinite(llm_temperature) or not 0.0 <= llm_temperature <= 2.0:
                 raise ValueError
         except ValueError:
             raise ConfigurationError(
@@ -88,12 +126,18 @@ class AppConfig:
             db_path=os.getenv("INBOX_HELPER_DB_PATH", "data/inbox_helper.db"),
             log_level=log_level,  # type: ignore[arg-type]
             llm_provider=provider,  # type: ignore[arg-type]
-            llm_model=os.getenv("INBOX_HELPER_LLM_MODEL", "mock-model-v1"),
+            demo_mode=_parse_bool(os.getenv("INBOX_HELPER_DEMO_MODE", "false")),
+            llm_model=os.getenv(
+                "INBOX_HELPER_LLM_MODEL",
+                "llama3.2" if provider == "ollama" else "mock-model-v1",
+            ),
             llm_timeout=llm_timeout,
             llm_temperature=llm_temperature,
             openai_api_key=os.getenv("OPENAI_API_KEY"),
             gemini_api_key=os.getenv("GEMINI_API_KEY"),
-            ollama_base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
+            ollama_base_url=os.getenv(
+                "OLLAMA_BASE_URL", "http://localhost:11434"
+            ).rstrip("/"),
         )
 
     def ensure_db_directory(self) -> None:
@@ -119,3 +163,12 @@ def set_config(config: AppConfig | None) -> None:
     """Override application configuration (primarily for testing)."""
     global _current_config
     _current_config = config
+
+
+def _parse_bool(value: str) -> bool:
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    raise ConfigurationError("INBOX_HELPER_DEMO_MODE must be a boolean value.")

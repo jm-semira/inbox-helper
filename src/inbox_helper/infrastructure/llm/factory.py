@@ -4,13 +4,23 @@ from inbox_helper.application.ports.llm_health_check import LLMHealthCheck
 from inbox_helper.application.ports.llm_provider import LLMProvider
 from inbox_helper.core.config import AppConfig, get_config
 from inbox_helper.core.exceptions import ConfigurationError
-from inbox_helper.infrastructure.llm.mock import MockLLMProvider
+from inbox_helper.infrastructure.llm.mock import (
+    DemoMockLLMProvider,
+    MockLLMProvider,
+)
+from inbox_helper.infrastructure.llm.ollama import OllamaLLMProvider
 from inbox_helper.infrastructure.llm.retrying import RetryingLLMProvider
 
 
 def _create_raw_provider(config: AppConfig) -> LLMProvider:
     if config.llm_provider == "mock":
+        if config.demo_mode:
+            return DemoMockLLMProvider()
         return MockLLMProvider()
+    if config.demo_mode:
+        raise ConfigurationError("Demo Mode is available only with the mock provider.")
+    if config.llm_provider == "ollama":
+        return OllamaLLMProvider.from_config(config)
     raise ConfigurationError(
         f"LLM provider '{config.llm_provider}' is configured but not implemented."
     )

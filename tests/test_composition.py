@@ -6,6 +6,7 @@ from inbox_helper.composition import (
     create_application,
     create_classification_service,
     create_reply_draft_service,
+    create_ui_application,
 )
 from inbox_helper.core.config import AppConfig
 from inbox_helper.domain.models.email import Email
@@ -106,3 +107,19 @@ def test_reply_draft_service_is_independently_constructible_and_closes_repositor
 
     assert close_calls == 1
     assert draft_close_calls == 1
+
+
+def test_ui_composition_constructs_all_services_and_closes_repositories(
+    tmp_path: Path,
+) -> None:
+    config = AppConfig(db_path=str(tmp_path / "ui.db"), log_level="CRITICAL")
+
+    with create_ui_application(config) as services:
+        assert services.ingestion is not None
+        assert services.email_query is not None
+        assert services.classifier is not None
+        assert services.reply_drafts is not None
+        assert services.review_queue is not None
+        assert services.dashboard is not None
+        assert services.approved_export is not None
+        assert services.demo_mode is False
