@@ -4,7 +4,10 @@ Inbox Helper is a local-first email triage application. It includes validated
 CSV ingestion and SQLite persistence, provider-neutral email classification,
 persisted reply drafts with explicit human review, an urgency-prioritized
 review queue, approved-only CSV export, bounded provider retry/health behavior,
-and a Streamlit interface. The available LLM choices are deterministic
+and a Streamlit interface. Uploading a valid CSV automatically processes its
+emails one at a time: classification is persisted, each successfully
+classified email receives its own draft, and the Review Queue groups pending
+drafts by the saved intent. The available LLM choices are deterministic
 `mock` and local Ollama inference; cloud providers and email sending are not
 implemented.
 
@@ -34,6 +37,33 @@ remain unimplemented and fail explicitly. The mock's default response remains
 `"Mock response"` and does not satisfy the structured classification or reply
 schemas; classification and drafting in normal Mock Mode will therefore
 report a safe validation error.
+
+## Upload-to-review workflow
+
+On the Inbox page, selecting a CSV starts the workflow automatically. Inbox
+Helper validates the entire file before persisting it, then processes each
+saved email independently through the configured provider, the existing
+classification validator, and the reply-generation service. A successful
+classification is saved before reply generation. Every generated reply is an
+individual draft; intent groups organize drafts but never share a response.
+After processing, the UI opens the Review Queue and reports classified,
+drafted, and failed counts.
+
+The upload fingerprint and per-email processing state are stored in SQLite.
+Re-uploading the same file returns its existing email records, and completed
+emails or emails with an existing draft are not classified or drafted again.
+If one email fails, previously completed emails and other successful records
+remain intact. The Review Queue separates processing failures from drafts
+awaiting review, identifies the failed stage, and offers explicit retry only
+for failures classified as transient. A failed reply-generation attempt keeps
+its validated classification so retry does not repeat classification.
+Permanent provider errors and invalid structured responses are not retried.
+An interrupted processing claim becomes retryable after ten minutes.
+
+Pending drafts are grouped by their stored classification intent, with the
+existing urgency order retained inside each group. Editing, approval, and
+rejection remain separate explicit human actions. Draft generation does not
+approve or send email, and approved-only export behavior is unchanged.
 
 ## Ollama AI Mode
 
@@ -94,8 +124,10 @@ CSV files must include `sender`, `subject`, and `body` columns. `id` and
 ISO 8601 date/time values. Subject and body may be empty, and supplied content
 is preserved. Sender must be non-empty, but is not restricted to email-address
 syntax. The entire file is validated before any records are saved. Emails can
-be imported through `EmailIngestionService`, and persisted using the
-standard-library SQLite repository.
+be imported through `EmailIngestionService`. The local UI uses its
+byte-ingestion path and atomically persists the validated upload before
+starting per-email AI processing. Email, workflow, and draft records remain
+local in the standard-library SQLite repositories.
 
 Run tests (including the Streamlit AppTest coverage) with:
 

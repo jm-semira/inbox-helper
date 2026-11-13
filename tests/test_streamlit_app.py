@@ -36,9 +36,7 @@ def _import_csv(app: AppTest, content: bytes) -> AppTest:
     app.file_uploader(key="inbox_helper.csv_upload").upload(
         "emails.csv", content, "text/csv"
     )
-    app.run()
-    app.button(key="inbox_helper.import_csv").click().run()
-    return app
+    return app.run()
 
 
 def test_streamlit_dashboard_empty_state_and_navigation(
@@ -67,30 +65,26 @@ def test_streamlit_import_classify_generate_edit_decide_and_export(
         b"email-1,candidate,Question,Please share information.\n"
         b"email-2,candidate,Another question,Please share more information.\n",
     )
-    assert any("Imported 2 email(s)" in item.value for item in app.success)
-
-    app.button(key="classify-email-1").click().run()
-    assert any("general_inquiry" in item.value for item in app.markdown)
-    app.button(key="generate-email-1").click().run()
-    assert any("Draft saved to the review queue" in item.value for item in app.success)
+    assert any("Processed 2 of 2 email(s)" in item.value for item in app.success)
+    assert any("General Inquiry · 2" in item.value for item in app.header)
 
     app.run()
     with SqliteEmailRepository(tmp_path / "inbox.db") as email_repository:
         with SqliteReplyDraftRepository(tmp_path / "inbox.db") as draft_repository:
             assert email_repository.count_emails() == 2
-            assert len(draft_repository.list_drafts()) == 1
+            assert len(draft_repository.list_drafts()) == 2
 
     _navigate(app, "Review Queue")
     assert any("Please share information" in item.value for item in app.text)
-    app.text_area(key="inbox_helper.draft_editor." + _draft_id(tmp_path)).set_value(
+    first_draft_id = _draft_id_for_email(tmp_path, "email-1")
+    app.text_area(key="inbox_helper.draft_editor." + first_draft_id).set_value(
         "Human-edited response."
     ).run()
-    draft_id = _draft_id(tmp_path)
-    assert app.button(key=f"approve-{draft_id}").disabled
-    app.button(key=f"save-{draft_id}").click().run()
+    assert app.button(key=f"approve-{first_draft_id}").disabled
+    app.button(key=f"save-{first_draft_id}").click().run()
     assert any("still pending review" in item.value for item in app.success)
 
-    app.button(key=f"approve-{draft_id}").click().run()
+    app.button(key=f"approve-{first_draft_id}").click().run()
     assert any("No email was sent" in item.value for item in app.success)
     download = app.get("download_button")
     assert len(download) == 1
@@ -98,10 +92,7 @@ def test_streamlit_import_classify_generate_edit_decide_and_export(
 
     _navigate(app, "Inbox")
     app.selectbox(key="inbox_helper.selected_email_id").select("email-2").run()
-    app.button(key="classify-email-2").click().run()
-    app.button(key="generate-email-2").click().run()
-    draft_ids = _draft_ids(tmp_path)
-    rejected_draft_id = next(value for value in draft_ids if value != draft_id)
+    rejected_draft_id = _draft_id_for_email(tmp_path, "email-2")
     _navigate(app, "Review Queue")
     app.button(key=f"reject-{rejected_draft_id}").click().run()
     assert any("Draft rejected" in item.value for item in app.success)
@@ -123,11 +114,10 @@ def test_streamlit_duplicate_upload_is_blocked_in_session(
     content = b"id,sender,subject,body\nemail-1,sender,Subject,Body\n"
     _import_csv(app, content)
 
-    app.button(key="inbox_helper.import_csv").click().run()
+    _navigate(app, "Inbox")
+    _import_csv(app, content)
 
-    assert any(
-        "already imported during this session" in item.value for item in app.info
-    )
+    assert any("already processed during this session" in item.value for item in app.info)
     with SqliteEmailRepository(tmp_path / "inbox.db") as repository:
         assert repository.count_emails() == 1
 
@@ -153,17 +143,53 @@ def test_streamlit_reruns_do_not_repeat_classification_or_generation(
     _navigate(app, "Inbox")
     _import_csv(app, b"id,sender,subject,body\nemail-1,sender,Subject,Body\n")
 
-    app.button(key="classify-email-1").click().run()
-    assert provider.calls == 1
-    app.run()
-    assert provider.calls == 1
-
-    app.button(key="generate-email-1").click().run()
     assert provider.calls == 2
     app.run()
     assert provider.calls == 2
     with SqliteReplyDraftRepository(tmp_path / "inbox.db") as repository:
         assert len(repository.list_drafts()) == 1
+
+
+def test_streamlit_retries_only_the_failed_email(
+    monkeypatch, tmp_path: Path
+) -> None:
+    from inbox_helper.core.exceptions import TransientLLMProviderError
+
+    class RecoveringProvider:
+        def __init__(self) -> None:
+            self.available = False
+            self.calls = 0
+
+        def complete(self, prompt: str) -> str:
+            self.calls += 1
+            if not self.available:
+                raise TransientLLMProviderError("private provider details")
+            if prompt.startswith("Classify the email"):
+                return DemoMockLLMProvider._CLASSIFICATION_RESPONSE
+            return DemoMockLLMProvider._REPLY_RESPONSE
+
+    provider = RecoveringProvider()
+    monkeypatch.setattr(
+        "inbox_helper.composition.create_llm_provider",
+        lambda config: provider,
+    )
+    app = _app_test(monkeypatch, tmp_path)
+    _navigate(app, "Inbox")
+    _import_csv(app, b"id,sender,subject,body\nemail-1,sender,Subject,Body\n")
+
+    assert provider.calls == 1
+    assert any("temporarily unavailable" in item.value for item in app.error)
+    assert not any("private provider details" in item.value for item in app.error)
+
+    provider.available = True
+    _navigate(app, "Review Queue")
+    app.button(key="retry-email-1").click().run()
+
+    assert provider.calls == 3
+    with SqliteReplyDraftRepository(tmp_path / "inbox.db") as repository:
+        drafts = repository.list_drafts()
+        assert len(drafts) == 1
+        assert drafts[0].status.value == "draft"
 
 
 def test_streamlit_invalid_csv_shows_safe_error_without_partial_import(
@@ -189,9 +215,8 @@ def test_streamlit_demo_mode_disabled_surfaces_invalid_mock_safely(
     assert any("Mock Mode" in item.value for item in app.caption)
     _navigate(app, "Inbox")
     _import_csv(app, b"id,sender,subject,body\nemail-1,sender,Subject,Body\n")
-    app.button(key="classify-email-1").click().run()
 
-    assert any("not a valid classification" in item.value for item in app.error)
+    assert any("invalid classification" in item.value for item in app.error)
     assert not any("Mock response" in item.value for item in app.error)
 
 
@@ -220,8 +245,6 @@ def test_streamlit_shows_human_input_warning_for_generated_draft(
     app = _app_test(monkeypatch, tmp_path)
     _navigate(app, "Inbox")
     _import_csv(app, b"id,sender,subject,body\nemail-1,sender,Subject,Body\n")
-    app.button(key="classify-email-1").click().run()
-    app.button(key="generate-email-1").click().run()
 
     assert any("Human input is required" in item.value for item in app.warning)
     assert "Please confirm the response details." in {
@@ -271,10 +294,8 @@ def test_streamlit_ollama_mode_label_and_unavailable_message(
     assert any("Ollama is unavailable" in item.value for item in app.warning)
     _navigate(app, "Inbox")
     _import_csv(app, b"id,sender,subject,body\nemail-1,sender,Subject,Body\n")
-    app.button(key="classify-email-1").click().run()
 
-    assert any("Check that the local Ollama service is running" in item.value
-               for item in app.error)
+    assert any("temporarily unavailable" in item.value for item in app.error)
     assert not any("private network detail" in item.value for item in app.error)
 
 
@@ -317,3 +338,11 @@ def _draft_ids(db_path: Path) -> list[str]:
     with SqliteEmailRepository(db_path / "inbox.db"):
         with SqliteReplyDraftRepository(db_path / "inbox.db") as repository:
             return [draft.id for draft in repository.list_drafts()]
+
+
+def _draft_id_for_email(db_path: Path, email_id: str) -> str:
+    with SqliteEmailRepository(db_path / "inbox.db"):
+        with SqliteReplyDraftRepository(db_path / "inbox.db") as repository:
+            draft = repository.get_by_source_email_id(email_id)
+            assert draft is not None
+            return draft.id

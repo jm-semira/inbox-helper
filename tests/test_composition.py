@@ -117,6 +117,7 @@ def test_ui_composition_constructs_all_services_and_closes_repositories(
     with create_ui_application(config) as services:
         assert services.ingestion is not None
         assert services.email_query is not None
+        assert services.email_processing is not None
         assert services.classifier is not None
         assert services.reply_drafts is not None
         assert services.review_queue is not None

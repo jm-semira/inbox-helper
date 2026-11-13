@@ -21,6 +21,9 @@ def main() -> None:
     if flash is not None:
         kind, message = flash
         getattr(st, kind)(message)
+    navigate_to = st.session_state.pop("inbox_helper.navigate_to", None)
+    if navigate_to in PAGES:
+        st.session_state["inbox_helper.page"] = navigate_to
     try:
         config = get_config()
         if config.demo_mode:

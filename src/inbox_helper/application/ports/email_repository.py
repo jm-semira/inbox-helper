@@ -11,6 +11,9 @@ class EmailRepository(Protocol):
     def save_many(self, emails: list[Email]) -> None:
         """Persist a group of emails atomically."""
 
+    def save_import(self, emails: list[Email], fingerprint: str) -> list[Email]:
+        """Persist one upload atomically or return its previously saved emails."""
+
     def get_by_id(self, email_id: str) -> Email:
         """Retrieve an imported email."""
 

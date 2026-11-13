@@ -4,18 +4,28 @@
 
 - Added an optional Streamlit UI with a context-managed application service
   bundle, dashboard, inbox, and pending-draft review navigation.
-- Added email browsing and dashboard aggregate services, uploaded-byte CSV
-  ingestion with a 10 MiB limit, and source email content in review projections.
-- Added explicit UI actions for classification, persisted draft generation,
-  editing, approval/rejection, and approved-only CSV download. Session guards
-  prevent duplicate upload and draft-generation actions on reruns.
+- Added an application-level upload workflow that atomically ingests validated
+  CSV bytes, classifies each email, persists the classification, and generates
+  one independent draft per successfully classified email.
+- Added SQLite upload fingerprints and per-email processing outcomes. Exact
+  re-uploads reuse original email identities; processing failures remain
+  isolated, successful steps persist independently, and retries resume without
+  repeating completed classification or creating another draft.
+- Added automatic upload processing with per-batch counts, a recoverable
+  processing-issues section, and separate intent-grouped pending drafts with
+  source details. Transient failures can be explicitly retried; malformed
+  structured output and permanent provider failures cannot.
+- Retained explicit draft editing, approval/rejection, and approved-only CSV
+  download. Editing does not approve, and neither classification nor draft
+  generation sends email.
 - Added opt-in Demo Mode with predefined schema-valid mock outputs; the
   original mock default remains unchanged. The UI clearly identifies demo
   outputs as not actual AI-generated results.
 - Bound Streamlit to loopback by default, rendered email/draft content as plain
   text, used safe error messages, and cleaned temporary export directories.
-- Added AppTest coverage for empty states and the import/classify/generate/edit/
-  decide/export workflow, plus rerun, size-limit, error, and Demo Mode cases.
+- Added application and AppTest coverage for batch processing, per-email
+  failure recovery, classification persistence, duplicate uploads, migration
+  compatibility, empty states, human review, export, size limits, and reruns.
 - No cloud provider, email sending, automatic approval, or non-local network
   health behavior was added. Ollama is accessed only through its local HTTP
   adapter.

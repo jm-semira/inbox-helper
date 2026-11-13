@@ -22,6 +22,9 @@ class ReplyDraftRepository(Protocol):
     def get_draft(self, draft_id: str) -> ReplyDraft:
         """Retrieve a saved draft."""
 
+    def get_by_source_email_id(self, email_id: str) -> ReplyDraft | None:
+        """Return one existing draft for an email without generating another."""
+
     def list_drafts(
         self, status: DraftStatus | None = None
     ) -> list[ReplyDraft]:

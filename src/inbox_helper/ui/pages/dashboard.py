@@ -24,8 +24,8 @@ def render(services: UiApplicationServices) -> None:
     columns[3].metric("Rejected drafts", stats.rejected_drafts)
     st.metric("Drafts with classification snapshots", stats.classified_drafts)
     st.caption(
-        "Classifications are transient until a reply draft is generated; "
-        "the dashboard counts only snapshots stored with drafts."
+        "This metric counts snapshots stored with drafts. A classification "
+        "retained for processing recovery is not included."
     )
     if stats.total_emails == 0:
         st.info("Your inbox is empty. Import a CSV from the Inbox page to begin.")

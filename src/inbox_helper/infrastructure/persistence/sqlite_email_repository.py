@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from pathlib import Path
 
@@ -37,6 +38,14 @@ class SqliteEmailRepository:
                 )
                 """
             )
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS email_imports (
+                    fingerprint TEXT PRIMARY KEY,
+                    email_ids_json TEXT NOT NULL
+                )
+                """
+            )
 
     def save_many(self, emails: list[Email]) -> None:
         if not emails:
@@ -61,6 +70,68 @@ class SqliteEmailRepository:
                 )
         except sqlite3.Error as error:
             raise RepositoryError(f"Could not save emails to SQLite: {error}") from error
+
+    def save_import(self, emails: list[Email], fingerprint: str) -> list[Email]:
+        """Persist a CSV upload once and return the same emails on exact re-upload."""
+        try:
+            self._connection.execute("BEGIN IMMEDIATE")
+            existing = self._connection.execute(
+                "SELECT email_ids_json FROM email_imports WHERE fingerprint = ?",
+                (fingerprint,),
+            ).fetchone()
+            if existing is not None:
+                email_ids = json.loads(existing["email_ids_json"])
+                rows = [
+                    self._connection.execute(
+                        """
+                        SELECT id, sender, subject, body, received_at
+                        FROM emails WHERE id = ?
+                        """,
+                        (email_id,),
+                    ).fetchone()
+                    for email_id in email_ids
+                ]
+                if any(row is None for row in rows):
+                    raise RepositoryError(
+                        "Previously imported email records are incomplete."
+                    )
+                self._connection.commit()
+                return [Email.model_validate(dict(row)) for row in rows]
+
+            self._connection.executemany(
+                """
+                INSERT INTO emails (id, sender, subject, body, received_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                [
+                    (
+                        email.id,
+                        email.sender,
+                        email.subject,
+                        email.body,
+                        email.received_at.isoformat(),
+                    )
+                    for email in emails
+                ],
+            )
+            self._connection.execute(
+                """
+                INSERT INTO email_imports (fingerprint, email_ids_json)
+                VALUES (?, ?)
+                """,
+                (
+                    fingerprint,
+                    json.dumps([email.id for email in emails], separators=(",", ":")),
+                ),
+            )
+            self._connection.commit()
+            return emails
+        except RepositoryError:
+            self._connection.rollback()
+            raise
+        except (sqlite3.Error, ValueError, TypeError) as error:
+            self._connection.rollback()
+            raise RepositoryError("Could not persist uploaded email CSV.") from error
 
     def get_by_id(self, email_id: str) -> Email:
         try:

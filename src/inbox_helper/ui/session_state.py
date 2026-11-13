@@ -8,8 +8,7 @@ def initialize_session_state(state: Any) -> None:
     defaults: dict[str, object] = {
         "inbox_helper.page": "Dashboard",
         "inbox_helper.selected_email_id": None,
-        "inbox_helper.classifications": {},
-        "inbox_helper.generated_for_email_ids": set(),
+        "inbox_helper.processed_uploads": set(),
         "inbox_helper.flash": None,
     }
     for key, value in defaults.items():

@@ -156,6 +156,24 @@ class SqliteReplyDraftRepository:
             raise EntityNotFoundError("Reply draft", draft_id)
         return self._to_draft(row)
 
+    def get_by_source_email_id(self, email_id: str) -> ReplyDraft | None:
+        """Find an existing draft so workflow retries cannot create another."""
+        try:
+            row = self._connection.execute(
+                """
+                SELECT * FROM reply_drafts
+                WHERE source_email_id = ?
+                ORDER BY rowid
+                LIMIT 1
+                """,
+                (email_id,),
+            ).fetchone()
+        except sqlite3.Error as error:
+            raise RepositoryError(
+                "Could not retrieve a draft for the source email."
+            ) from error
+        return self._to_draft(row) if row is not None else None
+
     def list_drafts(
         self, status: DraftStatus | None = None
     ) -> list[ReplyDraft]:

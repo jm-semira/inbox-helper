@@ -5,6 +5,10 @@ from tempfile import TemporaryDirectory
 
 import streamlit as st
 
+from inbox_helper.application.models.email_processing import (
+    EmailProcessingError,
+    EmailProcessingStatus,
+)
 from inbox_helper.composition import UiApplicationServices
 from inbox_helper.core.exceptions import InboxHelperError
 from inbox_helper.domain.models.reply_draft import DraftStatus
@@ -15,6 +19,7 @@ def render(services: UiApplicationServices) -> None:
     """Render ordered pending drafts and separate edit and decision actions."""
     st.title("Review Queue")
     _render_export(services)
+    _render_processing_issues(services)
     try:
         groups = services.review_queue.get_grouped_queue()
     except InboxHelperError as error:
@@ -31,7 +36,7 @@ def render(services: UiApplicationServices) -> None:
             if group.intent
             else "Unclassified"
         )
-        st.header(title)
+        st.header(f"{title} · {len(group.items)}")
         for item in group.items:
             urgency = item.urgency or "unknown"
             heading = f"Pending draft · {urgency.upper()}"
@@ -88,6 +93,64 @@ def render(services: UiApplicationServices) -> None:
                     _decide(services, item.draft.id, DraftStatus.REJECTED)
                 if changed:
                     st.info("Save your edit before making an explicit decision.")
+
+
+def _render_processing_issues(services: UiApplicationServices) -> None:
+    try:
+        outcomes = services.email_processing.list_outcomes()
+    except InboxHelperError as error:
+        st.error(safe_error_message(error, services.llm_provider))
+        return
+
+    attention = [
+        item
+        for item in outcomes
+        if item.status is not EmailProcessingStatus.COMPLETED
+    ]
+    if not attention:
+        return
+
+    st.subheader("Processing issues")
+    st.caption(
+        "Only provider failures classified as transient can be retried. "
+        "Invalid structured output and permanent provider errors are not "
+        "retried automatically."
+    )
+    for outcome in attention:
+        try:
+            email = services.email_query.get_email(outcome.email_id)
+        except InboxHelperError as error:
+            st.error(safe_error_message(error, services.llm_provider))
+            continue
+        with st.expander(f"{email.subject or '(no subject)'} · {email.sender}"):
+            st.caption(f"Email {email.id} · {outcome.status.value.replace('_', ' ')}")
+            st.text(email.body or "(empty body)")
+            if outcome.error_message:
+                st.error(outcome.error_message)
+                if (
+                    outcome.error is EmailProcessingError.TRANSIENT_PROVIDER
+                    and services.llm_provider == "ollama"
+                ):
+                    st.caption(
+                        "Check that the local Ollama service is running and "
+                        "OLLAMA_BASE_URL is correct."
+                    )
+            elif outcome.status is EmailProcessingStatus.PROCESSING:
+                st.warning(
+                    "Processing may have been interrupted. A retry is available "
+                    "after the processing lease expires."
+                )
+            if services.email_processing.can_retry(outcome):
+                if st.button("Retry processing", key=f"retry-{email.id}"):
+                    try:
+                        services.email_processing.retry_email(email.id)
+                        st.session_state["inbox_helper.flash"] = (
+                            "success",
+                            "Retry finished. Review the updated processing outcome.",
+                        )
+                        st.rerun()
+                    except InboxHelperError as error:
+                        st.error(safe_error_message(error, services.llm_provider))
 
 
 def _decide(

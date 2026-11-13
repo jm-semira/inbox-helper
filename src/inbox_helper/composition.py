@@ -10,6 +10,9 @@ from inbox_helper.application.services.approved_reply_export_service import (
 from inbox_helper.application.services.dashboard_service import DashboardService
 from inbox_helper.application.services.email_classifier import EmailClassifier
 from inbox_helper.application.services.email_ingestion import EmailIngestionService
+from inbox_helper.application.services.email_processing_service import (
+    EmailProcessingService,
+)
 from inbox_helper.application.services.email_query_service import EmailQueryService
 from inbox_helper.application.services.provider_health_service import (
     ProviderHealthService,
@@ -29,6 +32,9 @@ from inbox_helper.infrastructure.llm.factory import (
 from inbox_helper.infrastructure.persistence.sqlite_email_repository import (
     SqliteEmailRepository,
 )
+from inbox_helper.infrastructure.persistence.sqlite_email_processing_repository import (
+    SqliteEmailProcessingRepository,
+)
 from inbox_helper.infrastructure.persistence.sqlite_reply_draft_repository import (
     SqliteReplyDraftRepository,
 )
@@ -40,6 +46,7 @@ class UiApplicationServices:
 
     ingestion: EmailIngestionService
     email_query: EmailQueryService
+    email_processing: EmailProcessingService
     classifier: EmailClassifier
     reply_drafts: ReplyDraftService
     review_queue: ReviewQueueService
@@ -82,12 +89,27 @@ def create_ui_application(
         draft_repository = stack.enter_context(
             SqliteReplyDraftRepository(active_config.db_path)
         )
+        processing_repository = stack.enter_context(
+            SqliteEmailProcessingRepository(active_config.db_path)
+        )
         provider = create_llm_provider(active_config)
+        ingestion = EmailIngestionService(EmailCsvReader(), email_repository)
+        email_query = EmailQueryService(email_repository)
+        classifier = EmailClassifier(provider)
+        reply_drafts = ReplyDraftService(provider, draft_repository)
         services = UiApplicationServices(
-            ingestion=EmailIngestionService(EmailCsvReader(), email_repository),
-            email_query=EmailQueryService(email_repository),
-            classifier=EmailClassifier(provider),
-            reply_drafts=ReplyDraftService(provider, draft_repository),
+            ingestion=ingestion,
+            email_query=email_query,
+            email_processing=EmailProcessingService(
+                ingestion,
+                email_query,
+                classifier,
+                reply_drafts,
+                draft_repository,
+                processing_repository,
+            ),
+            classifier=classifier,
+            reply_drafts=reply_drafts,
             review_queue=ReviewQueueService(draft_repository),
             dashboard=DashboardService(email_repository, draft_repository),
             approved_export=ApprovedReplyExportService(
